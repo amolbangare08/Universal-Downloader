@@ -1,9 +1,26 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 let mainWindow;
-let childProcess = null; // Global variable to store the running Python process
+let childProcess = null;
+
+// --- Detect Python executable ---
+function getPythonCommand() {
+  for (const cmd of ['python3', 'python']) {
+    try {
+      const version = execSync(`${cmd} --version`, { encoding: 'utf-8', timeout: 5000 });
+      if (version.includes('Python 3')) {
+        return cmd;
+      }
+    } catch (_e) {
+      // Try next candidate
+    }
+  }
+  return 'python'; // fallback
+}
+
+const pythonCmd = getPythonCommand();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -11,8 +28,9 @@ function createWindow() {
     height: 850,
     title: "Universal Downloader",
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     }
   });
 
@@ -23,6 +41,14 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// --- Kill child process on quit ---
+app.on('will-quit', () => {
+  if (childProcess) {
+    try { childProcess.kill(); } catch (_e) { /* already exited */ }
+    childProcess = null;
+  }
 });
 
 // --- START DOWNLOAD ---
@@ -62,15 +88,14 @@ ipcMain.on('start-download', async (event, args) => {
     cliArgs.push('--trim_end', t_end);
   }
 
-  // 3. Spawn Python (Assign to global variable)
-  // Ensure we kill any existing process first
+  // 3. Spawn Python
   if (childProcess) {
-    try { childProcess.kill(); } catch(e){}
+    try { childProcess.kill(); } catch (_e) { /* already exited */ }
   }
 
-  childProcess = spawn('python', cliArgs);
+  childProcess = spawn(pythonCmd, cliArgs);
 
-  // 4. Listen for Output (FIXED: Uses 'childProcess' instead of 'child')
+  // 4. Listen for Output
   childProcess.stdout.on('data', (data) => {
     const lines = data.toString().split('\n');
     lines.forEach(line => {
@@ -78,7 +103,7 @@ ipcMain.on('start-download', async (event, args) => {
       try {
         const json = JSON.parse(line);
         mainWindow.webContents.send('python-output', json);
-      } catch (e) {
+      } catch (_e) {
         // Ignore non-JSON output
       }
     });
@@ -88,16 +113,16 @@ ipcMain.on('start-download', async (event, args) => {
     console.error(`Python Error: ${data}`);
   });
 
-  childProcess.on('close', (code) => {
-      childProcess = null;
+  childProcess.on('close', (_code) => {
+    childProcess = null;
   });
 });
 
 // --- STOP DOWNLOAD ---
 ipcMain.on('stop-download', () => {
-    if (childProcess) {
-        childProcess.kill();
-        childProcess = null;
-    }
-    mainWindow.webContents.send('download-stopped');
+  if (childProcess) {
+    childProcess.kill();
+    childProcess = null;
+  }
+  mainWindow.webContents.send('download-stopped');
 });

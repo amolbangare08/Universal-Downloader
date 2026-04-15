@@ -390,7 +390,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; }
 .glow-btn:active {
     transform: translateY(0);
 }
-.glow-btn.stop { background-color: var(--danger); }
+.glow-btn.stop { background: var(--danger); box-shadow: 0 10px 30px -5px rgba(239, 68, 68, 0.5); }
 
 /* Ambient Glow Elements */
 .glow-bg {

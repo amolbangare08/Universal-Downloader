@@ -1,13 +1,11 @@
-const { ipcRenderer } = require('electron');
-
 // --- ELEMENTS ---
 const el = (id) => document.getElementById(id);
 
 // 1. Inputs (Values)
 const urlInput = el('url');
-const qualitySelect = el('quality');      // The dropdown
-const audioFmtSelect = el('audio-fmt');   // The dropdown
-const hbPresetSelect = el('hb-preset');   // <--- FIXED: Added this definition
+const qualitySelect = el('quality');
+const audioFmtSelect = el('audio-fmt');
+const hbPresetSelect = el('hb-preset');
 
 // 2. Toggles & Buttons
 const trimCheck = el('chk-trim');
@@ -31,13 +29,23 @@ const progressContainer = el('progress-container');
 let currentMode = 'video_audio';
 let isDownloading = false;
 
+// --- URL VALIDATION ---
+function isValidURL(str) {
+    try {
+        const url = new URL(str);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (_e) {
+        return false;
+    }
+}
+
 // --- 1. MODE SWITCHING ---
 document.querySelectorAll('.segment-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         // Visual Update
         document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        
+
         // Logic Update
         currentMode = btn.dataset.mode;
         updateVisibility();
@@ -48,7 +56,7 @@ function updateVisibility() {
     if (currentMode === 'audio_only') {
         // Audio Mode
         if(qualityCard) qualityCard.style.display = 'none';
-        if(audioFmtCard) audioFmtCard.style.display = 'flex'; 
+        if(audioFmtCard) audioFmtCard.style.display = 'flex';
         if(hbCard) hbCard.style.display = 'none';
         if(hbPresetCard) hbPresetCard.style.display = 'none';
     } else {
@@ -56,7 +64,7 @@ function updateVisibility() {
         if(qualityCard) qualityCard.style.display = 'flex';
         if(audioFmtCard) audioFmtCard.style.display = 'none';
         if(hbCard) hbCard.style.display = 'flex';
-        
+
         // Only show preset if Handbrake is CHECKED
         if(hbPresetCard) {
             hbPresetCard.style.display = hbCheck.checked ? 'flex' : 'none';
@@ -136,12 +144,20 @@ urlInput.addEventListener('paste', startUrlAnimation);
 btnDownload.addEventListener('click', () => {
     // STOP LOGIC
     if (isDownloading) {
-        ipcRenderer.send('stop-download');
+        window.electronAPI.stopDownload();
         return;
     }
 
     const url = urlInput.value.trim();
     if (!url) {
+        return;
+    }
+
+    // Validate URL format
+    if (!isValidURL(url)) {
+        statusText.innerText = "Please enter a valid URL (https://...)";
+        statusText.style.color = "var(--danger)";
+        setTimeout(() => { statusText.innerText = ""; }, 5000);
         return;
     }
 
@@ -166,14 +182,14 @@ btnDownload.addEventListener('click', () => {
         res: qualitySelect.value,
         audio_fmt: audioFmtSelect.value,
         use_hb: hbCheck.checked,
-        hb_preset: hbPresetSelect.value, // <--- FIXED: Now uses the defined variable
+        hb_preset: hbPresetSelect.value,
         trim_on: trimCheck.checked,
         t_start: el('t-start').value,
         t_end: el('t-end').value
     };
 
     console.log("Sending to main:", args);
-    ipcRenderer.send('start-download', args);
+    window.electronAPI.startDownload(args);
 });
 
 // --- PARTICLE FUNCTION ---
@@ -191,7 +207,7 @@ function createParticle(parent) {
 }
 
 // --- 6. LISTENERS ---
-ipcRenderer.on('python-output', (event, msg) => {
+window.electronAPI.onPythonOutput((msg) => {
     if (msg.type === 'progress') {
         const percent = msg.data * 100;
         progressFill.style.width = percent + '%';
@@ -212,13 +228,13 @@ ipcRenderer.on('python-output', (event, msg) => {
     }
 });
 
-ipcRenderer.on('download-canceled', () => {
+window.electronAPI.onDownloadCanceled(() => {
     statusText.innerText = "Download canceled";
     resetUI();
     setTimeout(() => { statusText.innerText = ""; }, 7000);
 });
 
-ipcRenderer.on('download-stopped', () => {
+window.electronAPI.onDownloadStopped(() => {
     statusText.innerText = "Download Stopped";
     statusText.style.color = "var(--text-sub)";
     resetUI();
